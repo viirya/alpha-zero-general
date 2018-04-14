@@ -11,12 +11,18 @@ class MCTS():
         self.game = game
         self.nnet = nnet
         self.args = args
+
+        # Qsa. key: (s, a), value: average value for (s, a)
         self.Qsa = {}       # stores Q values for s,a (as defined in the paper)
+        # Nsa. key: (s, a), value: the number of time we choose a from status s.
+        # This indicates how many time action a is choosed as best action.
         self.Nsa = {}       # stores #times edge s,a was visited
         self.Ns = {}        # stores #times board s was visited
+        # Ps[s] stores the probabilities of actions for board s.
         self.Ps = {}        # stores initial policy (returned by neural net)
 
         self.Es = {}        # stores game.getGameEnded ended for board s
+        # Save the valid actions for a board status s.
         self.Vs = {}        # stores game.getValidMoves for board s
 
     def getActionProb(self, canonicalBoard, temp=1):
@@ -35,6 +41,8 @@ class MCTS():
         counts = [self.Nsa[(s,a)] if (s,a) in self.Nsa else 0 for a in range(self.game.getActionSize())]
 
         if temp==0:
+            # Choose the action that is mostly visited during simulations (i.e., the action which
+            # is choosed as best action at most of time).
             bestA = np.argmax(counts)
             probs = [0]*len(counts)
             probs[bestA]=1
@@ -73,14 +81,20 @@ class MCTS():
             # terminal node
             return -self.Es[s]
 
+        # P.s saves the probabilities of next actions for a board status s.
+        # If there is no such probabilities for current board, it means
+        # we reach a leaf in the tree (i.e., we have not visit this board before)
         if s not in self.Ps:
-            # leaf node
+            # Calculate the probabilities of next actions.
             self.Ps[s], v = self.nnet.predict(canonicalBoard)
             valids = self.game.getValidMoves(canonicalBoard, 1)
-            self.Ps[s] = self.Ps[s]*valids      # masking invalid moves
+            # Only keep the probabilities of the valid actions.
+            self.Ps[s] = self.Ps[s]*valids
             sum_Ps_s = np.sum(self.Ps[s])
             if sum_Ps_s > 0:
-                self.Ps[s] /= sum_Ps_s    # renormalize
+                # Because we clear the probabilities of invalid actions.
+                # We need to normalize it as a probability distribution (i.e., sum of probabilities = 1)
+                self.Ps[s] /= sum_Ps_s
             else:
                 # if all valid moves were masked make all valid moves equally probable
                 
@@ -99,18 +113,24 @@ class MCTS():
         best_act = -1
 
         # pick the action with the highest upper confidence bound
+        # For each action in the game.
         for a in range(self.game.getActionSize()):
+            # If this is a valid action.
             if valids[a]:
+                # Qsa[(s, a)] saves the average value for board s and action a.
                 if (s,a) in self.Qsa:
+                    # Calculate the value if we choose a as next action.
                     u = self.Qsa[(s,a)] + self.args.cpuct*self.Ps[s][a]*math.sqrt(self.Ns[s])/(1+self.Nsa[(s,a)])
                 else:
                     u = self.args.cpuct*self.Ps[s][a]*math.sqrt(self.Ns[s] + EPS)     # Q = 0 ?
 
+                # If a is a better action.
                 if u > cur_best:
                     cur_best = u
                     best_act = a
 
         a = best_act
+        # Choose a as next action and change board.
         next_s, next_player = self.game.getNextState(canonicalBoard, 1, a)
         next_s = self.game.getCanonicalForm(next_s, next_player)
 
